@@ -131,17 +131,13 @@ export default function SettingsPage() {
 
   const handleVolumeChange = (volumeValue: number) => { // volumeValue is 0-1 from AudioControls
     setAudioSettings(prev => ({ ...prev, volume: Math.round(volumeValue * 100) }));
-    // Toast for volume change can be added if desired
   };
 
   const handlePlaybackSpeedChange = (speed: number) => {
     setAudioSettings(prev => ({ ...prev, playbackSpeed: speed }));
-    // Toast for speed change can be added if desired
   };
   
   if (!isClient) {
-    // Render a minimal loading state or null until client-side hydration,
-    // to prevent hydration mismatch with localStorage.
     return (
         <AppShell>
              <div className="space-y-10 max-w-2xl mx-auto">
@@ -149,7 +145,6 @@ export default function SettingsPage() {
                     <h1 className="text-3xl font-bold text-primary">Settings</h1>
                     <p className="text-muted-foreground mt-2">Loading your preferences...</p>
                 </header>
-                {/* You could add skeleton loaders here for a better UX */}
             </div>
         </AppShell>
     );
@@ -166,11 +161,10 @@ export default function SettingsPage() {
         <AudioControls
           initialVoice={audioSettings.voice}
           onVoiceChange={handleVoiceChange}
-          initialVolume={audioSettings.volume} // Pass as 0-100
-          onVolumeChange={handleVolumeChange} // Receives 0-1
+          initialVolume={audioSettings.volume} 
+          onVolumeChange={handleVolumeChange} 
           initialPlaybackSpeed={audioSettings.playbackSpeed}
           onPlaybackSpeedChange={handlePlaybackSpeedChange}
-          // Relaxation exercise state is session-specific, not persisted here
           onToggleRelaxationExercise={() => { /* Handled on TherapyPage */ }}
           isRelaxationExercisePlaying={false} 
         />
@@ -237,9 +231,6 @@ export default function SettingsPage() {
                 />
               </div>
             ))}
-            <p className="text-xs text-muted-foreground italic pt-2">
-              Note: Actual email notifications are not implemented in this prototype. This setting saves your preference locally.
-            </p>
           </CardContent>
         </Card>
 
