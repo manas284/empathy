@@ -13,17 +13,19 @@ import { useToast } from '@/hooks/use-toast';
 interface ChatInterfaceProps {
   messages: ChatMessage[];
   onSendMessage: (messageText: string) => Promise<void>;
-  isAiProcessingMessageVisible: boolean; // True when AI is fetching/generating text (for "processing..." message)
-  isAiAudioPlaying: boolean; // True when AI audio is actively playing
-  onInterruptAiAudio: () => void; // Function to call to stop AI's current audio
+  isAiProcessingMessageVisible: boolean;
+  isAiAudioPlaying: boolean;
+  onInterruptAiAudio: () => void;
+  isAiProcessingResponse: boolean; // New prop to disable mic if AI is thinking
 }
 
-export function ChatInterface({ 
-  messages, 
-  onSendMessage, 
+export function ChatInterface({
+  messages,
+  onSendMessage,
   isAiProcessingMessageVisible,
   isAiAudioPlaying,
-  onInterruptAiAudio
+  onInterruptAiAudio,
+  isAiProcessingResponse,
 }: ChatInterfaceProps) {
   const [isListening, setIsListening] = useState(false);
   const currentRecognitionInstance = useRef<SpeechRecognition | null>(null);
@@ -40,7 +42,7 @@ export function ChatInterface({
 
   const stopListening = useCallback(() => {
     if (currentRecognitionInstance.current) {
-      currentRecognitionInstance.current.stop(); 
+      currentRecognitionInstance.current.stop();
     }
     if (visualizerAnimationRef.current) {
       cancelAnimationFrame(visualizerAnimationRef.current);
@@ -58,10 +60,14 @@ export function ChatInterface({
       analyserRef.current.disconnect();
       analyserRef.current = null;
     }
-    setIsListening(false); 
-  }, []); 
+    // Ensure AudioContext is closed only if it's not already closed, and ideally when the component unmounts
+    // or when it's certain it won't be needed again soon. Closing it aggressively might impact quick restarts.
+    // For now, let's keep it open during the session and close on unmount.
+    setIsListening(false);
+  }, []);
 
-  const handleSpeechResult = useCallback((event: SpeechRecognitionEvent) => {
+
+  const handleSpeechResult = useCallback(async (event: SpeechRecognitionEvent) => {
     let finalTranscript = '';
     for (let i = event.resultIndex; i < event.results.length; ++i) {
       if (event.results[i].isFinal) {
@@ -69,16 +75,17 @@ export function ChatInterface({
       }
     }
     if (finalTranscript.trim()) {
-      onSendMessage(finalTranscript.trim());
+      await onSendMessage(finalTranscript.trim());
     }
   }, [onSendMessage]);
+
 
   const drawVisualizer = useCallback(() => {
     if (!analyserRef.current || !canvasRef.current || !dataArrayRef.current || !audioContextRef.current) {
       return;
     }
     if (audioContextRef.current.state === 'suspended') {
-      audioContextRef.current.resume();
+      audioContextRef.current.resume().catch(console.error);
     }
 
     visualizerAnimationRef.current = requestAnimationFrame(drawVisualizer);
@@ -110,15 +117,15 @@ export function ChatInterface({
       }
       if (!analyserRef.current) {
         analyserRef.current = audioContextRef.current.createAnalyser();
-        analyserRef.current.fftSize = 256;
+        analyserRef.current.fftSize = 256; // You can adjust this for visual detail
         const bufferLength = analyserRef.current.frequencyBinCount;
         dataArrayRef.current = new Uint8Array(bufferLength);
       }
       if (!mediaStreamRef.current || mediaStreamRef.current.getTracks().every(track => track.readyState === 'ended')) {
         mediaStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
       }
-      if (!sourceRef.current || !sourceRef.current.mediaStream?.active) { 
-         if(sourceRef.current) sourceRef.current.disconnect(); // Disconnect old source if any
+      if (!sourceRef.current || !sourceRef.current.mediaStream?.active) {
+         if(sourceRef.current) sourceRef.current.disconnect();
          sourceRef.current = audioContextRef.current.createMediaStreamSource(mediaStreamRef.current);
          sourceRef.current.connect(analyserRef.current);
       }
@@ -126,37 +133,34 @@ export function ChatInterface({
     } catch (err) {
       console.error("Error setting up visualizer or getting media stream:", err);
       toast({ variant: "destructive", title: "Visualizer Error", description: "Could not access microphone for visualizer."});
-      stopListening(); 
+      stopListening();
     }
   }, [toast, stopListening, drawVisualizer]);
 
+
   const startListening = useCallback(() => {
-    if (isListening) return;
+    if (isListening || isAiProcessingResponse) return; // Don't start if already listening or AI is processing
 
     const SpeechRecognition = window.SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
       toast({ variant: "destructive", title: "Speech Recognition Not Supported", description: "Your browser does not support speech recognition." });
       return;
     }
-    
+
+    // Ensure any previous instance is fully stopped and cleaned up by its own event handlers
     if (currentRecognitionInstance.current) {
-        currentRecognitionInstance.current.onresult = null;
-        currentRecognitionInstance.current.onerror = null;
-        currentRecognitionInstance.current.onend = null;
-        currentRecognitionInstance.current.onstart = null;
-        try { currentRecognitionInstance.current.stop(); } catch (e) { /* ignore */ }
-        currentRecognitionInstance.current = null; 
+        try { currentRecognitionInstance.current.stop(); } catch (e) { /* ignore if already stopped */ }
     }
     
     const recognition = new SpeechRecognition();
-    currentRecognitionInstance.current = recognition;
+    currentRecognitionInstance.current = recognition; // Store this specific instance
 
     recognition.continuous = false;
-    recognition.interimResults = false; 
+    recognition.interimResults = false;
     recognition.lang = 'en-US';
 
     recognition.onstart = () => {
-      if (recognition === currentRecognitionInstance.current) {
+      if (recognition === currentRecognitionInstance.current) { // Check if this is the active instance
         setIsListening(true);
         setupVisualizer();
       }
@@ -170,29 +174,25 @@ export function ChatInterface({
     
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
       if (recognition === currentRecognitionInstance.current) {
+        console.warn("Speech recognition error", event.error, event); // Changed to warn for network/no-speech
         let errorMessage = "An unknown speech error occurred.";
         if (event.error === 'no-speech') {
           errorMessage = "No speech was detected. Please try again.";
-          console.warn("Speech recognition error: no-speech", event);
         } else if (event.error === 'audio-capture') {
           errorMessage = "Audio capture failed. Ensure microphone is connected and permission is granted.";
-          console.error("Speech recognition error: audio-capture", event);
         } else if (event.error === 'not-allowed') {
           errorMessage = "Microphone access denied. Please allow microphone access in browser settings.";
-          console.error("Speech recognition error: not-allowed", event);
         } else if (event.error === 'network') {
           errorMessage = "A network error occurred with the browser's speech recognition service. Please check your connection or try again later.";
-          console.warn("Speech recognition error: network", event);
-        } else {
-          console.error("Speech recognition error", event.error, event);
         }
         toast({ variant: "destructive", title: "Speech Error", description: errorMessage });
+        // onend will handle cleanup
       }
     };
 
     recognition.onend = () => {
-      if (recognition === currentRecognitionInstance.current) {
-        stopListening(); 
+      if (recognition === currentRecognitionInstance.current) { // Only cleanup if this is the instance that ended
+        stopListening(); // This now also sets isListening to false
         currentRecognitionInstance.current = null;
       }
     };
@@ -204,18 +204,17 @@ export function ChatInterface({
         toast({ variant: "destructive", title: "Mic Error", description: "Could not start microphone."})
         stopListening(); // Ensure cleanup
     }
-  }, [isListening, toast, handleSpeechResult, stopListening, setupVisualizer]);
+  }, [isListening, toast, handleSpeechResult, stopListening, setupVisualizer, isAiProcessingResponse]);
 
 
   const handleMicClick = () => {
     if (isListening) {
-      stopListening();
-    } else { // Not listening, user wants to start
-      if (isAiAudioPlaying) { // If AI is speaking, interrupt it
-        onInterruptAiAudio(); 
+      stopListening(); // User wants to stop listening
+    } else { // User wants to start listening
+      if (isAiAudioPlaying) {
+        onInterruptAiAudio();
       }
-      // Only start listening if AI is not in the middle of processing the *previous* turn's text response.
-      if (!isAiProcessingMessageVisible) {
+      if (!isAiProcessingResponse) { // Only start if AI isn't currently processing a response
         startListening();
       }
     }
@@ -231,6 +230,7 @@ export function ChatInterface({
   }, [messages]);
 
   useEffect(() => {
+    // Cleanup on component unmount
     return () => {
       if (currentRecognitionInstance.current) {
         currentRecognitionInstance.current.onstart = null;
@@ -240,7 +240,7 @@ export function ChatInterface({
         try { currentRecognitionInstance.current.stop(); } catch(e) { /* ignore */ }
         currentRecognitionInstance.current = null;
       }
-      stopListening(); 
+      stopListening(); // General cleanup for visualizer and media stream
       if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
         audioContextRef.current.close().catch(console.error);
         audioContextRef.current = null;
@@ -303,14 +303,14 @@ export function ChatInterface({
         </div>
       </ScrollArea>
       <div className="border-t p-4 flex items-center justify-center bg-background">
-        <Button 
-          type="button" 
+        <Button
+          type="button"
           size="lg"
           variant={isListening ? "destructive" : "outline"}
           onClick={handleMicClick}
-          disabled={isAiProcessingMessageVisible && !isListening} // Disable if AI is processing and user is not already trying to stop listening
+          disabled={isAiProcessingResponse && !isListening}
           aria-label={isListening ? "Stop listening" : "Start listening"}
-          className="rounded-full w-20 h-20 flex items-center justify-center"
+          className="rounded-full w-20 h-20 flex items-center justify-center" // Made button larger and circular
         >
           {isListening ? <MicOff className="h-10 w-10" /> : <Mic className="h-10 w-10" />}
         </Button>
