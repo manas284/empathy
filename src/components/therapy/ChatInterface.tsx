@@ -5,7 +5,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Bot, User, Mic, MicOff } from 'lucide-react';
+import { Bot, User, Mic, MicOff, X as LucideX } from 'lucide-react'; // Renamed X to LucideX
 import type { ChatMessage } from '@/types';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
@@ -16,7 +16,7 @@ interface ChatInterfaceProps {
   isAiProcessingMessageVisible: boolean;
   isAiAudioPlaying: boolean;
   onInterruptAiAudio: () => void;
-  isAiProcessingResponse: boolean; // New prop to disable mic if AI is thinking
+  isAiProcessingResponse: boolean;
 }
 
 export function ChatInterface({
@@ -43,6 +43,7 @@ export function ChatInterface({
   const stopListening = useCallback(() => {
     if (currentRecognitionInstance.current) {
       currentRecognitionInstance.current.stop();
+      // onend will handle setting isListening to false and cleaning up recognitionRef
     }
     if (visualizerAnimationRef.current) {
       cancelAnimationFrame(visualizerAnimationRef.current);
@@ -60,10 +61,8 @@ export function ChatInterface({
       analyserRef.current.disconnect();
       analyserRef.current = null;
     }
-    // Ensure AudioContext is closed only if it's not already closed, and ideally when the component unmounts
-    // or when it's certain it won't be needed again soon. Closing it aggressively might impact quick restarts.
-    // For now, let's keep it open during the session and close on unmount.
-    setIsListening(false);
+    // Keep AudioContext open for the session, close on unmount.
+    setIsListening(false); // Explicitly set here to ensure UI updates quickly
   }, []);
 
 
@@ -75,6 +74,7 @@ export function ChatInterface({
       }
     }
     if (finalTranscript.trim()) {
+      // Automatically send the message
       await onSendMessage(finalTranscript.trim());
     }
   }, [onSendMessage]);
@@ -103,6 +103,7 @@ export function ChatInterface({
     let x = 0;
     for (let i = 0; i < dataArrayRef.current.length; i++) {
       const barHeight = dataArrayRef.current[i] / 2;
+      // Use primary theme color for visualizer bars
       ctx.fillStyle = 'hsl(var(--primary))';
       ctx.fillRect(x, HEIGHT - barHeight, barWidth, barHeight);
       x += barWidth + 1;
@@ -117,29 +118,33 @@ export function ChatInterface({
       }
       if (!analyserRef.current) {
         analyserRef.current = audioContextRef.current.createAnalyser();
-        analyserRef.current.fftSize = 256; // You can adjust this for visual detail
+        analyserRef.current.fftSize = 256;
         const bufferLength = analyserRef.current.frequencyBinCount;
         dataArrayRef.current = new Uint8Array(bufferLength);
       }
+
       if (!mediaStreamRef.current || mediaStreamRef.current.getTracks().every(track => track.readyState === 'ended')) {
         mediaStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
       }
+      
       if (!sourceRef.current || !sourceRef.current.mediaStream?.active) {
-         if(sourceRef.current) sourceRef.current.disconnect();
+         if(sourceRef.current) sourceRef.current.disconnect(); // Disconnect old source if exists
          sourceRef.current = audioContextRef.current.createMediaStreamSource(mediaStreamRef.current);
          sourceRef.current.connect(analyserRef.current);
       }
-      drawVisualizer();
+      if(!visualizerAnimationRef.current) { // Start drawing only if not already drawing
+        drawVisualizer();
+      }
     } catch (err) {
-      console.error("Error setting up visualizer or getting media stream:", err);
+      console.warn("Error setting up visualizer or getting media stream:", err);
       toast({ variant: "destructive", title: "Visualizer Error", description: "Could not access microphone for visualizer."});
-      stopListening();
+      stopListening(); // This will also set isListening to false
     }
   }, [toast, stopListening, drawVisualizer]);
 
 
   const startListening = useCallback(() => {
-    if (isListening || isAiProcessingResponse) return; // Don't start if already listening or AI is processing
+    if (isListening || isAiProcessingResponse) return;
 
     const SpeechRecognition = window.SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
@@ -147,52 +152,58 @@ export function ChatInterface({
       return;
     }
 
-    // Ensure any previous instance is fully stopped and cleaned up by its own event handlers
     if (currentRecognitionInstance.current) {
-        try { currentRecognitionInstance.current.stop(); } catch (e) { /* ignore if already stopped */ }
+        try { currentRecognitionInstance.current.stop(); } catch (e) { /* ignore */ }
     }
     
     const recognition = new SpeechRecognition();
-    currentRecognitionInstance.current = recognition; // Store this specific instance
+    currentRecognitionInstance.current = recognition;
 
     recognition.continuous = false;
-    recognition.interimResults = false;
+    recognition.interimResults = false; // We only care about the final transcript
     recognition.lang = 'en-US';
 
     recognition.onstart = () => {
-      if (recognition === currentRecognitionInstance.current) { // Check if this is the active instance
+      if (recognition === currentRecognitionInstance.current) {
         setIsListening(true);
         setupVisualizer();
       }
     };
 
     recognition.onresult = (event) => {
-        if (recognition === currentRecognitionInstance.current) {
-            handleSpeechResult(event);
-        }
+      if (recognition === currentRecognitionInstance.current) {
+        handleSpeechResult(event);
+      }
     };
     
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
       if (recognition === currentRecognitionInstance.current) {
-        console.warn("Speech recognition error", event.error, event); // Changed to warn for network/no-speech
         let errorMessage = "An unknown speech error occurred.";
+        let title = "Speech Error";
         if (event.error === 'no-speech') {
           errorMessage = "No speech was detected. Please try again.";
+          console.warn("Speech recognition error: no-speech", event);
         } else if (event.error === 'audio-capture') {
           errorMessage = "Audio capture failed. Ensure microphone is connected and permission is granted.";
+          console.error("Speech recognition error: audio-capture", event);
         } else if (event.error === 'not-allowed') {
           errorMessage = "Microphone access denied. Please allow microphone access in browser settings.";
+          console.error("Speech recognition error: not-allowed", event);
         } else if (event.error === 'network') {
           errorMessage = "A network error occurred with the browser's speech recognition service. Please check your connection or try again later.";
+          console.warn("Speech recognition error: network", event);
+          title = "Network Error";
+        } else {
+          console.error("Speech recognition error", event.error, event);
         }
-        toast({ variant: "destructive", title: "Speech Error", description: errorMessage });
-        // onend will handle cleanup
+        toast({ variant: "destructive", title: title, description: errorMessage });
+        // onend will handle cleanup via stopListening
       }
     };
 
     recognition.onend = () => {
-      if (recognition === currentRecognitionInstance.current) { // Only cleanup if this is the instance that ended
-        stopListening(); // This now also sets isListening to false
+      if (recognition === currentRecognitionInstance.current) {
+        stopListening(); // This will set isListening to false and clean up visualizer
         currentRecognitionInstance.current = null;
       }
     };
@@ -202,19 +213,19 @@ export function ChatInterface({
     } catch (e) {
         console.error("Error starting speech recognition:", e);
         toast({ variant: "destructive", title: "Mic Error", description: "Could not start microphone."})
-        stopListening(); // Ensure cleanup
+        stopListening();
     }
-  }, [isListening, toast, handleSpeechResult, stopListening, setupVisualizer, isAiProcessingResponse]);
+  }, [isListening, isAiProcessingResponse, toast, handleSpeechResult, stopListening, setupVisualizer]);
 
 
   const handleMicClick = () => {
     if (isListening) {
-      stopListening(); // User wants to stop listening
-    } else { // User wants to start listening
+      stopListening();
+    } else {
       if (isAiAudioPlaying) {
         onInterruptAiAudio();
       }
-      if (!isAiProcessingResponse) { // Only start if AI isn't currently processing a response
+      if (!isAiProcessingResponse) {
         startListening();
       }
     }
@@ -230,8 +241,7 @@ export function ChatInterface({
   }, [messages]);
 
   useEffect(() => {
-    // Cleanup on component unmount
-    return () => {
+    return () => { // Cleanup on component unmount
       if (currentRecognitionInstance.current) {
         currentRecognitionInstance.current.onstart = null;
         currentRecognitionInstance.current.onresult = null;
@@ -240,18 +250,22 @@ export function ChatInterface({
         try { currentRecognitionInstance.current.stop(); } catch(e) { /* ignore */ }
         currentRecognitionInstance.current = null;
       }
-      stopListening(); // General cleanup for visualizer and media stream
+      stopListening();
       if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
         audioContextRef.current.close().catch(console.error);
         audioContextRef.current = null;
       }
     };
-  }, [stopListening]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stopListening]); // Added stopListening to ensure it's the latest version
 
   return (
-    <div className={cn("flex flex-col border rounded-lg shadow-lg bg-card", isListening ? "h-[650px]" : "h-[600px]")}>
+    <div className={cn(
+        "flex flex-col border rounded-lg shadow-lg bg-card", 
+        isListening ? "h-[650px]" : "h-[600px]" // Keep dynamic height
+      )}>
       {isListening && (
-        <div className="p-2 border-b">
+        <div className="p-2 border-b bg-zinc-800"> {/* Darker background for visualizer area */}
           <canvas ref={canvasRef} width="300" height="50" className="w-full h-[50px] rounded"></canvas>
         </div>
       )}
@@ -302,19 +316,40 @@ export function ChatInterface({
           )}
         </div>
       </ScrollArea>
-      <div className="border-t p-4 flex items-center justify-center bg-background">
-        <Button
-          type="button"
-          size="lg"
-          variant={isListening ? "destructive" : "outline"}
-          onClick={handleMicClick}
-          disabled={isAiProcessingResponse && !isListening}
-          aria-label={isListening ? "Stop listening" : "Start listening"}
-          className="rounded-full w-20 h-20 flex items-center justify-center" // Made button larger and circular
-        >
-          {isListening ? <MicOff className="h-10 w-10" /> : <Mic className="h-10 w-10" />}
-        </Button>
+      <div className="border-t p-4 flex items-center justify-center bg-zinc-900 space-x-4"> {/* Dark background for controls */}
+        {!isListening && (
+            <Button
+              type="button"
+              onClick={handleMicClick}
+              disabled={isAiProcessingResponse}
+              aria-label="Start listening"
+              className="rounded-full w-20 h-20 flex items-center justify-center bg-primary hover:bg-primary/90 text-primary-foreground"
+            >
+              <Mic className="h-10 w-10" />
+            </Button>
+        )}
+        {isListening && (
+          <>
+            <Button
+              type="button"
+              onClick={handleMicClick} // This will call stopListening
+              aria-label="Stop listening"
+              className="rounded-full w-16 h-16 flex items-center justify-center bg-red-600 hover:bg-red-700 text-white"
+            >
+              <MicOff className="h-8 w-8" />
+            </Button>
+            <Button
+              type="button"
+              onClick={stopListening} // Explicitly stop listening and clean up
+              aria-label="Cancel"
+              className="rounded-full w-16 h-16 flex items-center justify-center bg-zinc-700 hover:bg-zinc-600 text-white"
+            >
+              <LucideX className="h-8 w-8" />
+            </Button>
+          </>
+        )}
       </div>
     </div>
   );
 }
+      
