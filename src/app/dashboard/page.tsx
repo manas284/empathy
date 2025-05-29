@@ -31,14 +31,14 @@ export default function DashboardPage() {
                 </Button>
               </div>
             </div>
-            <div className="md:w-1/2 lg:w-2/5 mt-8 md:mt-0 flex justify-center md:justify-end">
+            <div className="relative md:w-1/2 lg:w-2/5 mt-8 md:mt-0 aspect-[3/2]">
               <Image
                 src="https://placehold.co/600x400.png"
                 alt="Empathetic AI Connection"
-                width={600}
-                height={400}
+                fill
                 className="rounded-xl shadow-2xl object-cover"
                 data-ai-hint="empathy connection"
+                sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 40vw"
               />
             </div>
           </div>
@@ -118,14 +118,14 @@ export default function DashboardPage() {
                     Our system uses British English with appropriate medical terminology to create a professional yet comforting environment. The AI's empathy level dynamically adjusts, fostering a stronger connection over time. This contextual adaptation ensures that you receive relevant advice and truly empathetic responses.
                   </p>
                 </div>
-                <div className="flex-shrink-0 w-full lg:w-2/5 mt-6 lg:mt-0">
+                <div className="relative flex-shrink-0 w-full lg:w-2/5 aspect-square mt-6 lg:mt-0">
                   <Image 
                     src="https://placehold.co/600x600.png" 
                     alt="AI working illustration" 
-                    width={600} 
-                    height={600}
-                    className="rounded-lg shadow-2xl object-cover aspect-square"
+                    fill
+                    className="rounded-lg shadow-2xl object-cover"
                     data-ai-hint="abstract brain"
+                    sizes="(max-width: 1023px) 100vw, 40vw"
                   />
                 </div>
               </div>
