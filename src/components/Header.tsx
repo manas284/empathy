@@ -6,6 +6,7 @@ import { Home, MessageSquare, BarChart2, Settings, Bot } from 'lucide-react';
 import { Logo } from '@/components/Logo';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: Home },
@@ -21,24 +22,27 @@ export function Header() {
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-16 items-center justify-between">
         <Logo />
-        <nav className="hidden md:flex items-center space-x-2 lg:space-x-4">
-          {navItems.map((item) => (
-            <Button
-              key={item.href}
-              variant="ghost"
-              asChild
-              className={cn(
-                'text-sm font-medium transition-colors hover:text-primary',
-                pathname === item.href ? 'text-primary' : 'text-muted-foreground'
-              )}
-            >
-              <Link href={item.href} className="flex items-center gap-2">
-                <item.icon className="h-4 w-4" />
-                {item.label}
-              </Link>
-            </Button>
-          ))}
-        </nav>
+        <div className="flex items-center space-x-2 lg:space-x-4">
+          <nav className="hidden md:flex items-center space-x-2 lg:space-x-4">
+            {navItems.map((item) => (
+              <Button
+                key={item.href}
+                variant="ghost"
+                asChild
+                className={cn(
+                  'text-sm font-medium transition-colors hover:text-primary',
+                  pathname === item.href ? 'text-primary' : 'text-muted-foreground'
+                )}
+              >
+                <Link href={item.href} className="flex items-center gap-2">
+                  <item.icon className="h-4 w-4" />
+                  {item.label}
+                </Link>
+              </Button>
+            ))}
+          </nav>
+          <ThemeToggle />
+        </div>
         {/* Mobile Menu Trigger (optional) */}
         {/* <Button variant="ghost" size="icon" className="md:hidden">
           <Menu className="h-5 w-5" />
