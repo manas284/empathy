@@ -1,73 +1,245 @@
+
 "use client";
 
-
-import React from 'react'; // Add this line
-
-
-// ... rest of your imports and component code
+import React, { useState, useEffect } from 'react';
 import { AppShell } from '@/components/AppShell';
-import { AudioControls } from '@/components/therapy/AudioControls';
+import { AudioControls, type VoiceGender } from '@/components/therapy/AudioControls';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { UserCircle, Bell } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { useToast } from '@/hooks/use-toast';
+import { UserCircle, Bell, Save } from 'lucide-react';
+
+interface UserProfileSettings {
+  name: string;
+  email: string;
+}
+
+interface NotificationSettings {
+  emailNotifications: boolean;
+  sessionReminders: boolean;
+  progressUpdates: boolean;
+}
+
+interface AudioSettings {
+  voice: VoiceGender;
+  volume: number; // Stored as 0-100
+  playbackSpeed: number; // Stored as 0.5-2.0
+}
 
 export default function SettingsPage() {
-  // Placeholder for actual settings logic
-  const handleVoiceChange = (voice: 'male' | 'female') => {
-    console.log('Voice preference saved:', voice);
-    // Here you would typically save this to user preferences (e.g., localStorage or backend)
+  const { toast } = useToast();
+
+  const [profile, setProfile] = useState<UserProfileSettings>({
+    name: '',
+    email: '',
+  });
+  const [notifications, setNotifications] = useState<NotificationSettings>({
+    emailNotifications: false,
+    sessionReminders: true,
+    progressUpdates: false,
+  });
+  const [audioSettings, setAudioSettings] = useState<AudioSettings>({
+    voice: 'female',
+    volume: 50, // Default volume percentage
+    playbackSpeed: 1, // Default playback speed
+  });
+  const [isClient, setIsClient] = useState(false);
+
+  // Load settings from localStorage on mount (client-side only)
+  useEffect(() => {
+    setIsClient(true); // Indicates component has mounted on client
+
+    const storedProfile = localStorage.getItem('empathyAiProfileSettings');
+    if (storedProfile) {
+      setProfile(JSON.parse(storedProfile));
+    }
+
+    const storedNotifications = localStorage.getItem('empathyAiNotificationSettings');
+    if (storedNotifications) {
+      setNotifications(JSON.parse(storedNotifications));
+    }
+
+    const storedAudio = localStorage.getItem('empathyAiAudioSettings');
+    if (storedAudio) {
+      const parsedAudio = JSON.parse(storedAudio);
+      // Merge ensuring new fields have defaults if not in old localStorage data
+      setAudioSettings(prev => ({ ...prev, ...parsedAudio }));
+    }
+  }, []);
+
+  // Save profile settings to localStorage
+  useEffect(() => {
+    if (isClient) {
+      localStorage.setItem('empathyAiProfileSettings', JSON.stringify(profile));
+    }
+  }, [profile, isClient]);
+
+  // Save notification settings to localStorage
+  useEffect(() => {
+    if (isClient) {
+      localStorage.setItem('empathyAiNotificationSettings', JSON.stringify(notifications));
+    }
+  }, [notifications, isClient]);
+
+  // Save audio settings to localStorage
+  useEffect(() => {
+    if (isClient) {
+      localStorage.setItem('empathyAiAudioSettings', JSON.stringify(audioSettings));
+    }
+  }, [audioSettings, isClient]);
+
+  const handleProfileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setProfile({ ...profile, [e.target.name]: e.target.value });
   };
+
+  const handleProfileSave = (e: React.FormEvent) => {
+    e.preventDefault();
+    // localStorage saving is handled by the useEffect hook for `profile`
+    toast({
+      title: "Profile Updated",
+      description: "Your profile settings have been saved locally.",
+    });
+  };
+
+  const getNotificationLabel = (key: keyof NotificationSettings) => {
+    switch (key) {
+      case 'emailNotifications': return 'Email Notifications';
+      case 'sessionReminders': return 'Session Reminders';
+      case 'progressUpdates': return 'Progress Updates';
+      default: return '';
+    }
+  };
+  
+  const handleNotificationChange = (key: keyof NotificationSettings, value: boolean) => {
+    setNotifications(prev => ({ ...prev, [key]: value }));
+    toast({
+      title: "Notifications Updated",
+      description: `Setting for "${getNotificationLabel(key)}" has been ${value ? 'enabled' : 'disabled'}.`,
+    });
+  };
+
+  const handleVoiceChange = (newVoice: VoiceGender) => {
+    setAudioSettings(prev => ({ ...prev, voice: newVoice }));
+    toast({
+      title: "Voice Preference Updated",
+      description: `AI voice set to ${newVoice}. This will apply to new AI responses.`,
+    });
+  };
+
+  const handleVolumeChange = (volumeValue: number) => { // volumeValue is 0-1 from AudioControls
+    setAudioSettings(prev => ({ ...prev, volume: Math.round(volumeValue * 100) }));
+    // Toast for volume change can be added if desired
+  };
+
+  const handlePlaybackSpeedChange = (speed: number) => {
+    setAudioSettings(prev => ({ ...prev, playbackSpeed: speed }));
+    // Toast for speed change can be added if desired
+  };
+  
+  if (!isClient) {
+    // Render a minimal loading state or null until client-side hydration,
+    // to prevent hydration mismatch with localStorage.
+    return (
+        <AppShell>
+             <div className="space-y-10 max-w-2xl mx-auto">
+                 <header className="text-center">
+                    <h1 className="text-3xl font-bold text-primary">Settings</h1>
+                    <p className="text-muted-foreground mt-2">Loading your preferences...</p>
+                </header>
+                {/* You could add skeleton loaders here for a better UX */}
+            </div>
+        </AppShell>
+    );
+  }
 
   return (
     <AppShell>
-      <div className="space-y-8 max-w-2xl mx-auto">
+      <div className="space-y-10 max-w-2xl mx-auto">
         <header className="text-center">
           <h1 className="text-3xl font-bold text-primary">Settings</h1>
           <p className="text-muted-foreground mt-2">Customize your EmpathyAI experience.</p>
         </header>
 
-        <AudioControls onVoiceChange={handleVoiceChange} />
+        <AudioControls
+          initialVoice={audioSettings.voice}
+          onVoiceChange={handleVoiceChange}
+          initialVolume={audioSettings.volume} // Pass as 0-100
+          onVolumeChange={handleVolumeChange} // Receives 0-1
+          initialPlaybackSpeed={audioSettings.playbackSpeed}
+          onPlaybackSpeedChange={handlePlaybackSpeedChange}
+          // Relaxation exercise state is session-specific, not persisted here
+          onToggleRelaxationExercise={() => { /* Handled on TherapyPage */ }}
+          isRelaxationExercisePlaying={false} 
+        />
 
-        <Card className="shadow-md">
+        <Card className="shadow-lg border-border/80">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <UserCircle className="h-6 w-6 text-primary" />
-              Profile Settings (Placeholder)
+            <CardTitle className="flex items-center gap-3">
+              <UserCircle className="h-7 w-7 text-primary" />
+              Profile Management
             </CardTitle>
-            <CardDescription>Manage your account details and preferences.</CardDescription>
+            <CardDescription>Manage your account details. Changes are saved locally in your browser.</CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="text-muted-foreground">
-              Profile management features like changing your name, email, or password would go here.
-              For now, these are placeholders.
-            </p>
-            {/* Example:
-            <div className="mt-4 space-y-4">
-              <Label htmlFor="username">Username</Label>
-              <Input id="username" defaultValue="Current User" />
-              <Button>Update Profile</Button>
-            </div> 
-            */}
+            <form onSubmit={handleProfileSave} className="space-y-6">
+              <div className="space-y-2">
+                <Label htmlFor="name">Name</Label>
+                <Input
+                  id="name"
+                  name="name"
+                  value={profile.name}
+                  onChange={handleProfileInputChange}
+                  placeholder="Your Name"
+                  className="text-base"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  name="email"
+                  type="email"
+                  value={profile.email}
+                  onChange={handleProfileInputChange}
+                  placeholder="your@email.com"
+                  className="text-base"
+                />
+              </div>
+              <Button type="submit" className="w-full sm:w-auto">
+                <Save className="mr-2 h-5 w-5" /> Save Profile
+              </Button>
+            </form>
           </CardContent>
         </Card>
         
-        <Card className="shadow-md">
+        <Card className="shadow-lg border-border/80">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Bell className="h-6 w-6 text-primary" />
-              Notification Settings (Placeholder)
+            <CardTitle className="flex items-center gap-3">
+              <Bell className="h-7 w-7 text-primary" />
+              Notification Settings
             </CardTitle>
-            <CardDescription>Control how you receive updates and reminders.</CardDescription>
+            <CardDescription>Control how you receive updates. Preferences are saved locally.</CardDescription>
           </CardHeader>
-          <CardContent>
-            <p className="text-muted-foreground">
-              Options for enabling/disabling email notifications, session reminders, etc.
+          <CardContent className="space-y-5">
+            {(Object.keys(notifications) as Array<keyof NotificationSettings>).map((key) => (
+              <div key={key} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg shadow-sm">
+                <Label htmlFor={key} className="text-base cursor-pointer">
+                  {getNotificationLabel(key)}
+                </Label>
+                <Switch
+                  id={key}
+                  checked={notifications[key]}
+                  onCheckedChange={(checked) => handleNotificationChange(key, checked)}
+                  aria-label={getNotificationLabel(key)}
+                />
+              </div>
+            ))}
+            <p className="text-xs text-muted-foreground italic pt-2">
+              Note: Actual email notifications are not implemented in this prototype. This setting saves your preference locally.
             </p>
-            {/* Example:
-            <div className="mt-4 flex items-center space-x-2">
-              <Switch id="email-notifications" />
-              <Label htmlFor="email-notifications">Receive email notifications</Label>
-            </div>
-            */}
           </CardContent>
         </Card>
 
