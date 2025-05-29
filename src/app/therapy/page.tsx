@@ -19,7 +19,7 @@ import { generateSpeech } from '@/ai/flows/generate-speech-flow';
 type TherapyStage = 'initialData' | 'recommendations' | 'chat';
 
 // TODO: Replace this with your desired relaxation audio file URL
-const PLACEHOLDER_RELAXATION_AUDIO_URL = "https://www.soundjay.com/nature/sounds/river-1.mp3"; // Currently a river sound
+const PLACEHOLDER_RELAXATION_AUDIO_URL = "https://www.soundjay.com/nature/sounds/river-1.mp3";
 
 export default function TherapyPage() {
   const [stage, setStage] = useState<TherapyStage>('initialData');
@@ -32,8 +32,8 @@ export default function TherapyPage() {
   const [isLoading, setIsLoading] = useState(false); // For initial profile submission
 
   // AI Turn States
-  const [isAiProcessingResponse, setIsAiProcessingResponse] = useState(false); // True when AI is fetching/generating text response
-  const [isAiAudioActuallyPlaying, setIsAiAudioActuallyPlaying] = useState(false); // True when AI audio is playing
+  const [isAiProcessingResponse, setIsAiProcessingResponse] = useState(false);
+  const [isAiAudioActuallyPlaying, setIsAiAudioActuallyPlaying] = useState(false);
   
   // AI Speech Audio
   const [currentVoiceGender, setCurrentVoiceGender] = useState<VoiceGender>('female');
@@ -57,7 +57,8 @@ export default function TherapyPage() {
         setIsAiAudioActuallyPlaying(false);
       };
       const handlePause = () => {
-        if (audioDataUri === null || audioElement.src === '' || !audioElement.src) {
+        // Only set to false if it's truly paused by user/end, not just an interim state
+        if (audioDataUri === null || audioElement.src === '' || !audioElement.src || audioElement.ended) {
             setIsAiAudioActuallyPlaying(false);
         }
       };
@@ -70,6 +71,7 @@ export default function TherapyPage() {
       };
 
       audioElement.addEventListener('play', handlePlay);
+      audioElement.addEventListener('playing', handlePlay); // Some browsers prefer 'playing'
       audioElement.addEventListener('ended', handleEnd);
       audioElement.addEventListener('pause', handlePause);
       audioElement.addEventListener('error', handleError);
@@ -94,20 +96,21 @@ export default function TherapyPage() {
       } else if (!audioDataUri && !audioElement.paused) {
         audioElement.pause();
         if (audioElement.currentSrc && audioElement.currentSrc !== '') {
-          audioElement.removeAttribute('src');
-          audioElement.load(); 
+          audioElement.removeAttribute('src'); // Clear src
+          audioElement.load(); // Reload to apply src removal
         }
       }
       
       return () => {
         audioElement.removeEventListener('play', handlePlay);
+        audioElement.removeEventListener('playing', handlePlay);
         audioElement.removeEventListener('ended', handleEnd);
         audioElement.removeEventListener('pause', handlePause);
         audioElement.removeEventListener('error', handleError);
       };
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [audioDataUri, currentVolume, currentPlaybackSpeed, toast]);
+  }, [audioDataUri, currentVolume, currentPlaybackSpeed]); // Removed toast from deps as it's stable
 
 
   useEffect(() => {
@@ -135,14 +138,16 @@ export default function TherapyPage() {
       };
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentVolume, toast]);
+  }, [currentVolume]); // Removed toast from deps
 
   const stopAiSpeech = () => {
     if (aiAudioRef.current && !aiAudioRef.current.paused) {
       aiAudioRef.current.pause();
+      // The 'pause' event handler should set isAiAudioActuallyPlaying to false
     }
     setAudioDataUri(null); 
-    setIsAiAudioActuallyPlaying(false);
+    // Explicitly set here as well, as pause event might not fire if src is cleared immediately
+    setIsAiAudioActuallyPlaying(false); 
   };
 
   const stopRelaxationExercise = () => {
@@ -187,8 +192,6 @@ export default function TherapyPage() {
       setIdentifiedNeeds(recoOutput.identifiedTherapeuticNeeds);
       setAdaptedStyle(adaptResponse);
       
-      setIsAiProcessingResponse(false); 
-
       const needsText = recoOutput.identifiedTherapeuticNeeds.length > 0 
         ? `Based on your information, I've identified that focusing on areas such as ${recoOutput.identifiedTherapeuticNeeds.join(', ')} could be beneficial.`
         : "Thank you for sharing. I'm reviewing your information to best support you.";
@@ -202,10 +205,12 @@ export default function TherapyPage() {
         timestamp: new Date(),
       }]);
 
-      // Transition UI before awaiting speech
       setStage('chat');
       toast({ title: "Profile processed", description: "Personalized therapy session ready." });
       setIsLoading(false); // Hide the main loading spinner
+      
+      // Make chat interactive (microphone enabled) as soon as text is ready
+      setIsAiProcessingResponse(false); 
 
       await playAiSpeech(initialAiText, currentVoiceGender);
 
@@ -215,10 +220,9 @@ export default function TherapyPage() {
       stopAiSpeech(); 
       setIsAiProcessingResponse(false); 
       setIsAiAudioActuallyPlaying(false);
-      setIsLoading(false); // Ensure loading is stopped on error
-      setStage('initialData'); // Revert stage if profile processing fails critically
+      setIsLoading(false); 
+      setStage('initialData'); 
     }
-    // setIsLoading(false) was moved up to happen before playAiSpeech
   };
 
   const handleSendMessage = async (messageText: string) => {
@@ -256,6 +260,8 @@ export default function TherapyPage() {
       };
 
       const aiResponse = await generateEmpatheticResponse(empatheticResponseInput);
+      
+      // AI text response received, no longer "processing response" for THIS turn
       setIsAiProcessingResponse(false); 
 
       const newAiMessage: ChatMessage = {
@@ -322,6 +328,7 @@ export default function TherapyPage() {
     }
   };
 
+  // Show "AI is processing..." only if AI is fetching text AND the last message was from the user
   const showProcessingMessage = isAiProcessingResponse && messages.length > 0 && messages[messages.length-1]?.sender === 'user';
 
   return (
