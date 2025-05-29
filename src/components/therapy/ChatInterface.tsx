@@ -45,24 +45,22 @@ export function ChatInterface({
       currentRecognitionInstance.current.stop();
       // onend will handle setting isListening to false and cleaning up recognitionRef
     }
+    // Stop visualizer
     if (visualizerAnimationRef.current) {
       cancelAnimationFrame(visualizerAnimationRef.current);
       visualizerAnimationRef.current = null;
     }
     if (mediaStreamRef.current) {
       mediaStreamRef.current.getTracks().forEach(track => track.stop());
-      mediaStreamRef.current = null;
+      mediaStreamRef.current = null; // Release the stream
     }
     if (sourceRef.current) {
-      sourceRef.current.disconnect();
+      try { sourceRef.current.disconnect(); } catch(e) { /* ignore */ }
       sourceRef.current = null;
     }
-    if (analyserRef.current) {
-      analyserRef.current.disconnect();
-      analyserRef.current = null;
-    }
-    // Keep AudioContext open for the session, close on unmount.
-    setIsListening(false); // Explicitly set here to ensure UI updates quickly
+    // AnalyserNode does not need explicit disconnect if source is disconnected and AudioContext is managed.
+    // We don't close AudioContext here; it's closed on unmount or if recreation is needed.
+    setIsListening(false); 
   }, []);
 
 
@@ -74,7 +72,6 @@ export function ChatInterface({
       }
     }
     if (finalTranscript.trim()) {
-      // Automatically send the message
       await onSendMessage(finalTranscript.trim());
     }
   }, [onSendMessage]);
@@ -82,10 +79,30 @@ export function ChatInterface({
 
   const drawVisualizer = useCallback(() => {
     if (!analyserRef.current || !canvasRef.current || !dataArrayRef.current || !audioContextRef.current) {
+      if (visualizerAnimationRef.current) cancelAnimationFrame(visualizerAnimationRef.current);
+      visualizerAnimationRef.current = null;
       return;
     }
+    
     if (audioContextRef.current.state === 'suspended') {
-      audioContextRef.current.resume().catch(console.error);
+      audioContextRef.current.resume().catch(err => {
+        console.warn("Error resuming AudioContext for visualizer:", err);
+        if (visualizerAnimationRef.current) {
+            cancelAnimationFrame(visualizerAnimationRef.current);
+            visualizerAnimationRef.current = null;
+        }
+        // Visualizer stops if context can't resume.
+      });
+    }
+
+    // If context is still not running after attempt to resume, stop.
+    if (audioContextRef.current.state !== 'running') {
+      if (visualizerAnimationRef.current) {
+        cancelAnimationFrame(visualizerAnimationRef.current);
+        visualizerAnimationRef.current = null;
+      }
+      console.warn("AudioContext not running. Visualizer stopped.");
+      return;
     }
 
     visualizerAnimationRef.current = requestAnimationFrame(drawVisualizer);
@@ -102,43 +119,55 @@ export function ChatInterface({
     const barWidth = (WIDTH / dataArrayRef.current.length) * 2.5;
     let x = 0;
     for (let i = 0; i < dataArrayRef.current.length; i++) {
-      const barHeight = dataArrayRef.current[i] / 2;
-      // Use primary theme color for visualizer bars
+      const barHeight = dataArrayRef.current[i] / 2; 
       ctx.fillStyle = 'hsl(var(--primary))';
       ctx.fillRect(x, HEIGHT - barHeight, barWidth, barHeight);
-      x += barWidth + 1;
+      x += barWidth + 1; 
     }
-  }, []);
+  }, []); // Removed stopListening from here, drawVisualizer should not call stopListening directly
 
   const setupVisualizer = useCallback(async () => {
-    if (!canvasRef.current) return;
+    if (!canvasRef.current) return; 
     try {
       if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
         audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
       }
+      if (audioContextRef.current.state === 'suspended') {
+        await audioContextRef.current.resume();
+      }
+
       if (!analyserRef.current) {
         analyserRef.current = audioContextRef.current.createAnalyser();
-        analyserRef.current.fftSize = 256;
+        analyserRef.current.fftSize = 256; 
         const bufferLength = analyserRef.current.frequencyBinCount;
         dataArrayRef.current = new Uint8Array(bufferLength);
       }
 
-      if (!mediaStreamRef.current || mediaStreamRef.current.getTracks().every(track => track.readyState === 'ended')) {
+      if (!mediaStreamRef.current || !mediaStreamRef.current.active) {
+        if (mediaStreamRef.current) { 
+          mediaStreamRef.current.getTracks().forEach(track => track.stop());
+        }
         mediaStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
       }
       
-      if (!sourceRef.current || !sourceRef.current.mediaStream?.active) {
-         if(sourceRef.current) sourceRef.current.disconnect(); // Disconnect old source if exists
+      if (!sourceRef.current || sourceRef.current.mediaStream !== mediaStreamRef.current) {
+         if(sourceRef.current) {
+           try { sourceRef.current.disconnect(); } catch(e) { /* ignore */ }
+         }
          sourceRef.current = audioContextRef.current.createMediaStreamSource(mediaStreamRef.current);
-         sourceRef.current.connect(analyserRef.current);
+         sourceRef.current.connect(analyserRef.current); 
       }
-      if(!visualizerAnimationRef.current) { // Start drawing only if not already drawing
+      
+      if(!visualizerAnimationRef.current && audioContextRef.current.state === 'running') { 
         drawVisualizer();
+      } else if (audioContextRef.current.state !== 'running') {
+        console.warn("AudioContext not running after setup. Visualizer will not start.");
       }
+
     } catch (err) {
       console.warn("Error setting up visualizer or getting media stream:", err);
       toast({ variant: "destructive", title: "Visualizer Error", description: "Could not access microphone for visualizer."});
-      stopListening(); // This will also set isListening to false
+      stopListening(); 
     }
   }, [toast, stopListening, drawVisualizer]);
 
@@ -152,21 +181,33 @@ export function ChatInterface({
       return;
     }
 
+    // Ensure any previous instance is fully stopped and cleaned up
     if (currentRecognitionInstance.current) {
-        try { currentRecognitionInstance.current.stop(); } catch (e) { /* ignore */ }
+        try { 
+            currentRecognitionInstance.current.onstart = null;
+            currentRecognitionInstance.current.onresult = null;
+            currentRecognitionInstance.current.onerror = null;
+            currentRecognitionInstance.current.onend = null;
+            currentRecognitionInstance.current.stop(); 
+        } catch (e) { /* ignore */ }
+        currentRecognitionInstance.current = null;
     }
-    
+    // Also ensure visualizer related refs from previous session are cleared if not already by stopListening
+    if (visualizerAnimationRef.current) cancelAnimationFrame(visualizerAnimationRef.current);
+    visualizerAnimationRef.current = null;
+
     const recognition = new SpeechRecognition();
     currentRecognitionInstance.current = recognition;
 
-    recognition.continuous = false;
-    recognition.interimResults = false; // We only care about the final transcript
+    recognition.continuous = false; 
+    recognition.interimResults = false; 
     recognition.lang = 'en-US';
 
     recognition.onstart = () => {
+      // Check if this is still the current recognition instance
       if (recognition === currentRecognitionInstance.current) {
         setIsListening(true);
-        setupVisualizer();
+        setupVisualizer(); 
       }
     };
 
@@ -178,32 +219,32 @@ export function ChatInterface({
     
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
       if (recognition === currentRecognitionInstance.current) {
-        let errorMessage = "An unknown speech error occurred.";
-        let title = "Speech Error";
-        if (event.error === 'no-speech') {
-          errorMessage = "No speech was detected. Please try again.";
-          console.warn("Speech recognition error: no-speech", event);
-        } else if (event.error === 'audio-capture') {
-          errorMessage = "Audio capture failed. Ensure microphone is connected and permission is granted.";
-          console.error("Speech recognition error: audio-capture", event);
-        } else if (event.error === 'not-allowed') {
-          errorMessage = "Microphone access denied. Please allow microphone access in browser settings.";
-          console.error("Speech recognition error: not-allowed", event);
-        } else if (event.error === 'network') {
-          errorMessage = "A network error occurred with the browser's speech recognition service. Please check your connection or try again later.";
+        if (event.error === 'network') {
           console.warn("Speech recognition error: network", event);
-          title = "Network Error";
+        } else if (event.error === 'no-speech') {
+          console.warn("Speech recognition error: no-speech", event);
         } else {
           console.error("Speech recognition error", event.error, event);
         }
-        toast({ variant: "destructive", title: title, description: errorMessage });
-        // onend will handle cleanup via stopListening
+        
+        let errorMessage = "An unknown speech error occurred.";
+        if (event.error === 'no-speech') {
+          errorMessage = "No speech was detected. Please try again.";
+        } else if (event.error === 'audio-capture') {
+          errorMessage = "Audio capture failed. Ensure microphone is connected and permission is granted.";
+        } else if (event.error === 'not-allowed') {
+          errorMessage = "Microphone access denied. Please allow microphone access in browser settings.";
+        } else if (event.error === 'network') {
+          errorMessage = "A network error occurred with the browser's speech recognition service. Please check your connection or try again later.";
+        }
+        toast({ variant: "destructive", title: "Speech Error", description: errorMessage });
+        // onend will be called, which calls stopListening()
       }
     };
 
     recognition.onend = () => {
       if (recognition === currentRecognitionInstance.current) {
-        stopListening(); // This will set isListening to false and clean up visualizer
+        stopListening(); 
         currentRecognitionInstance.current = null;
       }
     };
@@ -213,9 +254,9 @@ export function ChatInterface({
     } catch (e) {
         console.error("Error starting speech recognition:", e);
         toast({ variant: "destructive", title: "Mic Error", description: "Could not start microphone."})
-        stopListening();
+        stopListening(); // Ensure cleanup if start fails
     }
-  }, [isListening, isAiProcessingResponse, toast, handleSpeechResult, stopListening, setupVisualizer]);
+  }, [isListening, isAiProcessingResponse, toast, handleSpeechResult, stopListening, setupVisualizer, drawVisualizer]);
 
 
   const handleMicClick = () => {
@@ -241,7 +282,7 @@ export function ChatInterface({
   }, [messages]);
 
   useEffect(() => {
-    return () => { // Cleanup on component unmount
+    return () => { 
       if (currentRecognitionInstance.current) {
         currentRecognitionInstance.current.onstart = null;
         currentRecognitionInstance.current.onresult = null;
@@ -250,22 +291,22 @@ export function ChatInterface({
         try { currentRecognitionInstance.current.stop(); } catch(e) { /* ignore */ }
         currentRecognitionInstance.current = null;
       }
-      stopListening();
+      stopListening(); 
       if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
         audioContextRef.current.close().catch(console.error);
         audioContextRef.current = null;
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stopListening]); // Added stopListening to ensure it's the latest version
+  }, [stopListening]); // stopListening is stable
 
   return (
     <div className={cn(
         "flex flex-col border rounded-lg shadow-lg bg-card", 
-        isListening ? "h-[650px]" : "h-[600px]" // Keep dynamic height
+        isListening ? "h-[650px]" : "h-[600px]" 
       )}>
       {isListening && (
-        <div className="p-2 border-b bg-zinc-800"> {/* Darker background for visualizer area */}
+        <div className="p-2 border-b bg-zinc-800"> 
           <canvas ref={canvasRef} width="300" height="50" className="w-full h-[50px] rounded"></canvas>
         </div>
       )}
@@ -316,7 +357,7 @@ export function ChatInterface({
           )}
         </div>
       </ScrollArea>
-      <div className="border-t p-4 flex items-center justify-center bg-zinc-900 space-x-4"> {/* Dark background for controls */}
+      <div className="border-t p-4 flex items-center justify-center bg-zinc-900 space-x-4">
         {!isListening && (
             <Button
               type="button"
@@ -332,7 +373,7 @@ export function ChatInterface({
           <>
             <Button
               type="button"
-              onClick={handleMicClick} // This will call stopListening
+              onClick={handleMicClick} 
               aria-label="Stop listening"
               className="rounded-full w-16 h-16 flex items-center justify-center bg-red-600 hover:bg-red-700 text-white"
             >
@@ -340,7 +381,7 @@ export function ChatInterface({
             </Button>
             <Button
               type="button"
-              onClick={stopListening} // Explicitly stop listening and clean up
+              onClick={stopListening} 
               aria-label="Cancel"
               className="rounded-full w-16 h-16 flex items-center justify-center bg-zinc-700 hover:bg-zinc-600 text-white"
             >
