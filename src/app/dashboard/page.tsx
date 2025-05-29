@@ -10,24 +10,36 @@ export default function DashboardPage() {
   return (
     <AppShell>
       <div className="flex flex-col space-y-16">
-        <section className="text-center py-20 md:py-28 bg-gradient-to-br from-primary/10 via-background to-accent/10 rounded-xl shadow-sm">
-          <div className="container mx-auto px-4">
-            <h1 className="text-5xl font-bold tracking-tight text-foreground sm:text-6xl md:text-7xl">
-              Welcome to <span className="text-primary">EmpathyAI</span>
-            </h1>
-            <p className="mt-8 max-w-3xl mx-auto text-xl leading-relaxed text-muted-foreground">
-              Your personalized AI companion for navigating life's challenges and fostering emotional wellbeing through empathetic conversation.
-            </p>
-            <div className="mt-12">
-              <Button 
-                size="lg" 
-                asChild 
-                className="shadow-lg hover:shadow-primary/30 hover:bg-primary/90 transition-all duration-300 ease-in-out transform hover:scale-105"
-              >
-                <Link href="/therapy">
-                  Start a Therapy Session <ArrowRight className="ml-2 h-5 w-5" />
-                </Link>
-              </Button>
+        <section className="py-16 md:py-24 bg-gradient-to-br from-primary/10 via-background to-accent/10 rounded-xl shadow-sm">
+          <div className="container mx-auto px-4 flex flex-col md:flex-row items-center gap-8 md:gap-12">
+            <div className="md:w-1/2 lg:w-3/5 text-center md:text-left">
+              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-foreground">
+                Welcome to <span className="text-primary">EmpathyAI</span>
+              </h1>
+              <p className="mt-6 max-w-xl mx-auto md:mx-0 text-lg sm:text-xl leading-relaxed text-muted-foreground">
+                Your personalized AI companion for navigating life's challenges and fostering emotional wellbeing through empathetic conversation.
+              </p>
+              <div className="mt-10">
+                <Button
+                  size="lg"
+                  asChild
+                  className="shadow-lg hover:shadow-primary/30 hover:bg-primary/90 transition-all duration-300 ease-in-out transform hover:scale-105"
+                >
+                  <Link href="/therapy">
+                    Start a Therapy Session <ArrowRight className="ml-2 h-5 w-5" />
+                  </Link>
+                </Button>
+              </div>
+            </div>
+            <div className="md:w-1/2 lg:w-2/5 mt-8 md:mt-0 flex justify-center md:justify-end">
+              <Image
+                src="https://placehold.co/600x400.png"
+                alt="Empathetic AI Connection"
+                width={600}
+                height={400}
+                className="rounded-xl shadow-2xl object-cover"
+                data-ai-hint="empathy connection"
+              />
             </div>
           </div>
         </section>
