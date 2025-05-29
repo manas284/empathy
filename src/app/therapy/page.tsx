@@ -7,7 +7,7 @@ import { UserInputForm } from '@/components/therapy/UserInputForm';
 import { ChatInterface } from '@/components/therapy/ChatInterface';
 import { AudioControls, type VoiceGender } from '@/components/therapy/AudioControls';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Loader2, Info, Sparkles } from 'lucide-react';
+import { Loader2, Info, Sparkles, User, ListChecks, Paintbrush2, Heart, Smile } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import type { UserProfile, PersonalizedTherapyOutput, AdaptedLanguageStyle, ChatMessage } from '@/types';
 
@@ -57,7 +57,6 @@ export default function TherapyPage() {
         setIsAiAudioActuallyPlaying(false);
       };
       const handlePause = () => {
-        // Only set to false if it's truly paused by user/end, not just an interim state
         if (audioDataUri === null || audioElement.src === '' || !audioElement.src || audioElement.ended) {
             setIsAiAudioActuallyPlaying(false);
         }
@@ -71,7 +70,7 @@ export default function TherapyPage() {
       };
 
       audioElement.addEventListener('play', handlePlay);
-      audioElement.addEventListener('playing', handlePlay); // Some browsers prefer 'playing'
+      audioElement.addEventListener('playing', handlePlay);
       audioElement.addEventListener('ended', handleEnd);
       audioElement.addEventListener('pause', handlePause);
       audioElement.addEventListener('error', handleError);
@@ -96,8 +95,8 @@ export default function TherapyPage() {
       } else if (!audioDataUri && !audioElement.paused) {
         audioElement.pause();
         if (audioElement.currentSrc && audioElement.currentSrc !== '') {
-          audioElement.removeAttribute('src'); // Clear src
-          audioElement.load(); // Reload to apply src removal
+          audioElement.removeAttribute('src'); 
+          audioElement.load(); 
         }
       }
       
@@ -110,7 +109,7 @@ export default function TherapyPage() {
       };
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [audioDataUri, currentVolume, currentPlaybackSpeed]); // Removed toast from deps as it's stable
+  }, [audioDataUri, currentVolume, currentPlaybackSpeed]);
 
 
   useEffect(() => {
@@ -138,15 +137,13 @@ export default function TherapyPage() {
       };
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentVolume]); // Removed toast from deps
+  }, [currentVolume]); 
 
   const stopAiSpeech = () => {
     if (aiAudioRef.current && !aiAudioRef.current.paused) {
       aiAudioRef.current.pause();
-      // The 'pause' event handler should set isAiAudioActuallyPlaying to false
     }
     setAudioDataUri(null); 
-    // Explicitly set here as well, as pause event might not fire if src is cleared immediately
     setIsAiAudioActuallyPlaying(false); 
   };
 
@@ -207,9 +204,7 @@ export default function TherapyPage() {
 
       setStage('chat');
       toast({ title: "Profile processed", description: "Personalized therapy session ready." });
-      setIsLoading(false); // Hide the main loading spinner
-      
-      // Make chat interactive (microphone enabled) as soon as text is ready
+      setIsLoading(false);
       setIsAiProcessingResponse(false); 
 
       await playAiSpeech(initialAiText, currentVoiceGender);
@@ -261,7 +256,6 @@ export default function TherapyPage() {
 
       const aiResponse = await generateEmpatheticResponse(empatheticResponseInput);
       
-      // AI text response received, no longer "processing response" for THIS turn
       setIsAiProcessingResponse(false); 
 
       const newAiMessage: ChatMessage = {
@@ -328,7 +322,6 @@ export default function TherapyPage() {
     }
   };
 
-  // Show "AI is processing..." only if AI is fetching text AND the last message was from the user
   const showProcessingMessage = isAiProcessingResponse && messages.length > 0 && messages[messages.length-1]?.sender === 'user';
 
   return (
@@ -373,23 +366,43 @@ export default function TherapyPage() {
                 initialVolume={currentVolume * 100}
                 initialPlaybackSpeed={currentPlaybackSpeed}
               />
-               <Card>
+               <Card className="shadow-md border-border/80">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2"><Info className="h-5 w-5 text-primary"/> Session Context</CardTitle>
                 </CardHeader>
-                <CardContent className="text-sm text-muted-foreground space-y-2">
-                  <p><strong>Your Profile:</strong> Age {userProfile.age}, {userProfile.genderIdentity}, Anxiety: {userProfile.anxietyLevel}.</p>
+                <CardContent className="text-sm space-y-3">
+                  <div className="flex items-start gap-2">
+                    <User className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+                    <p><strong>Profile:</strong> Age {userProfile.age}, {userProfile.genderIdentity}, Anxiety: {userProfile.anxietyLevel}.</p>
+                  </div>
+                  
                   {identifiedNeeds.length > 0 && (
-                    <p className="flex items-start gap-1">
-                      <Sparkles className="h-4 w-4 text-accent flex-shrink-0 mt-0.5" />
-                      <strong>AI Identified Focus:</strong> {identifiedNeeds.join(', ')}
-                    </p>
+                    <div className="flex items-start gap-2">
+                      <Sparkles className="h-4 w-4 text-accent mt-0.5 flex-shrink-0" />
+                      <p><strong>AI Focus:</strong> {identifiedNeeds.join(', ')}</p>
+                    </div>
                   )}
-                  {personalizedSessionInfo && <p><strong>Recommendations:</strong> {personalizedSessionInfo.recommendations.substring(0,70)}...</p>}
-                  {adaptedStyle && <p><strong>Style:</strong> {adaptedStyle.adaptedLanguage.substring(0,70)}...</p>}
-                  <p>AI Empathy Level: {empathyLevel}/5</p>
+                  {personalizedSessionInfo && (
+                     <div className="flex items-start gap-2">
+                        <ListChecks className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+                        <p><strong>Recommendations:</strong> <span className="text-muted-foreground">{personalizedSessionInfo.recommendations.substring(0,70)}...</span></p>
+                    </div>
+                  )}
+                  {adaptedStyle && (
+                    <div className="flex items-start gap-2">
+                        <Paintbrush2 className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+                        <p><strong>AI Style:</strong> <span className="text-muted-foreground">{adaptedStyle.adaptedLanguage.substring(0,70)}...</span></p>
+                    </div>
+                  )}
+                   <div className="flex items-start gap-2">
+                      <Heart className="h-4 w-4 text-red-500 mt-0.5 flex-shrink-0" />
+                      <p><strong>Empathy Level:</strong> {empathyLevel}/5</p>
+                   </div>
                   {messages.slice(-1)[0]?.sender === 'ai' && messages.slice(-1)[0].detectedSentiment && (
-                    <p><strong>AI Detected Sentiment:</strong> {messages.slice(-1)[0].detectedSentiment}</p>
+                     <div className="flex items-start gap-2">
+                        <Smile className="h-4 w-4 text-yellow-500 mt-0.5 flex-shrink-0" />
+                        <p><strong>Detected Sentiment:</strong> {messages.slice(-1)[0].detectedSentiment}</p>
+                    </div>
                   )}
                 </CardContent>
               </Card>
