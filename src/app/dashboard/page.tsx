@@ -125,7 +125,7 @@ export default function DashboardPage() {
                     width={600} 
                     height={600}
                     className="rounded-lg shadow-2xl object-cover aspect-square"
-                    data-ai-hint="abstract ai brain"
+                    data-ai-hint="abstract brain"
                   />
                 </div>
               </div>
