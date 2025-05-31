@@ -75,8 +75,8 @@ const generateSpeechFlow = ai.defineFlow(
         model_id: 'eleven_turbo_v2', // Changed to turbo model for lower latency
         voice_settings: {
           stability: 0.5,
-          similarity_boost: 0.75,
-          style: 0.0, 
+          similarity_boost: 0.70, // Adjusted from 0.75
+          style: 0.40, // Adjusted from 0.0
           use_speaker_boost: true,
         },
         output_format: 'mp3_44100_128'
@@ -110,3 +110,4 @@ const generateSpeechFlow = ai.defineFlow(
     }
   }
 );
+
