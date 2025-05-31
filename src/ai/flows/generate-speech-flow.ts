@@ -79,7 +79,7 @@ const generateSpeechFlow = ai.defineFlow(
           style: 0.40, // Adjusted from 0.0
           use_speaker_boost: true,
         },
-        output_format: 'mp3_44100_128'
+        output_format: 'mp3_44100_96' // Changed from mp3_44100_128 for potentially lower latency
       });
       
       const chunks: Uint8Array[] = [];
