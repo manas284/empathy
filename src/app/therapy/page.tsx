@@ -211,7 +211,13 @@ export default function TherapyPage() {
 
     } catch (error) {
       console.error("Error processing profile:", error);
-      toast({ variant: "destructive", title: "Error", description: "Could not process your profile. Please try again." });
+      let errorMessage = "Could not process your profile. Please try again.";
+      if (error instanceof Error) {
+        if (error.message.includes("503") || error.message.toLowerCase().includes("model is overloaded")) {
+          errorMessage = "The AI service is temporarily busy. Please try submitting your profile again in a few moments.";
+        }
+      }
+      toast({ variant: "destructive", title: "Profile Processing Error", description: errorMessage });
       stopAiSpeech(); 
       setIsAiProcessingResponse(false); 
       setIsAiAudioActuallyPlaying(false);
@@ -272,14 +278,27 @@ export default function TherapyPage() {
 
     } catch (error) {
       console.error("Error getting AI response:", error);
+      let errorText = "I'm having a little trouble connecting right now. Please try sending your message again in a moment.";
+      let toastTitle = "AI Response Error";
+      let toastDescription = "Could not get AI response.";
+
+      if (error instanceof Error) {
+        if (error.message.includes("503") || error.message.toLowerCase().includes("model is overloaded")) {
+          errorText = "I'm currently experiencing high demand and can't process your message right now. Please try again in a few moments.";
+          toastTitle = "AI Service Busy";
+          toastDescription = "The AI service is temporarily overloaded. Please try again shortly.";
+        }
+      }
+
       const errorAiMessage: ChatMessage = {
         id: crypto.randomUUID(),
         sender: 'ai',
-        text: "I'm having a little trouble connecting right now. Please try sending your message again in a moment.",
+        text: errorText,
         timestamp: new Date(),
       };
       setMessages(prev => [...prev, errorAiMessage]);
-      toast({ variant: "destructive", title: "Error", description: "Could not get AI response." });
+      toast({ variant: "destructive", title: toastTitle, description: toastDescription });
+      
       stopAiSpeech(); 
       setIsAiProcessingResponse(false); 
       setIsAiAudioActuallyPlaying(false); 
