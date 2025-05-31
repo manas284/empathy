@@ -1,3 +1,4 @@
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -99,5 +100,65 @@ body {
   }
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+@layer utilities {
+  @keyframes breathe {
+    0%, 100% {
+      transform: scale(1);
+      box-shadow: 0 0 20px hsla(0, 0%, 100%, 0.2), 0 0 40px hsla(var(--primary), 0.4), 0 0 60px hsla(var(--primary), 0.2);
+    }
+    50% {
+      transform: scale(1.03);
+      box-shadow: 0 0 25px hsla(0, 0%, 100%, 0.33), 0 0 50px hsla(var(--primary), 0.53), 0 0 75px hsla(var(--primary), 0.33);
+    }
+  }
+  .animate-breathe {
+    animation: breathe 4s ease-in-out infinite;
+  }
+
+  @keyframes listen-pulse {
+    0%, 100% {
+      transform: scale(1.02);
+      opacity: 0.8;
+      box-shadow: 0 0 22px hsla(0, 0%, 100%, 0.25), 0 0 45px hsla(var(--primary), 0.45), 0 0 65px hsla(var(--primary), 0.25);
+    }
+    50% {
+      transform: scale(1.06);
+      opacity: 1;
+      box-shadow: 0 0 30px hsla(0, 0%, 100%, 0.4), 0 0 60px hsla(var(--primary), 0.6), 0 0 90px hsla(var(--primary), 0.4);
+    }
+  }
+  .animate-listen-pulse {
+    animation: listen-pulse 1.5s ease-in-out infinite;
+  }
+
+  @keyframes speak-pulse {
+    0%, 100% {
+      transform: scale(1.05);
+      box-shadow: 0 0 30px hsla(0, 0%, 100%, 0.33), 0 0 60px hsla(var(--primary), 0.53), 0 0 90px hsla(var(--primary), 0.33);
+    }
+    50% {
+      transform: scale(1.1);
+      box-shadow: 0 0 40px hsla(0, 0%, 100%, 0.46), 0 0 80px hsla(var(--primary), 0.73), 0 0 120px hsla(var(--primary), 0.46);
+    }
+  }
+  .animate-speak-pulse {
+    animation: speak-pulse 1.2s ease-in-out infinite;
+  }
+  
+  @keyframes processing-pulse {
+    0%, 100% {
+      transform: scale(1);
+      box-shadow: 0 0 15px hsla(200, 100%, 80%, 0.2), 0 0 30px hsla(200, 100%, 70%, 0.3), 0 0 50px hsla(200, 100%, 60%, 0.2);
+    }
+    50% {
+      transform: scale(1.02);
+      box-shadow: 0 0 20px hsla(200, 100%, 80%, 0.3), 0 0 40px hsla(200, 100%, 70%, 0.4), 0 0 65px hsla(200, 100%, 60%, 0.3);
+    }
+  }
+  .animate-processing-pulse {
+    animation: processing-pulse 2s ease-in-out infinite;
   }
 }

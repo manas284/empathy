@@ -3,68 +3,56 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Bot, User, Mic, MicOff, X as LucideX } from 'lucide-react';
+import { Mic, MicOff, X as LucideX, Loader2 } from 'lucide-react';
 import type { ChatMessage } from '@/types';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 
 interface ChatInterfaceProps {
-  messages: ChatMessage[];
+  messages: ChatMessage[]; // Kept for potential future use (e.g. transcript)
   onSendMessage: (messageText: string) => Promise<void>;
-  isAiProcessingMessageVisible: boolean;
+  isAiProcessingMessageVisible: boolean; // Kept for potential future use
   isAiAudioPlaying: boolean;
   onInterruptAiAudio: () => void;
-  isAiProcessingResponse: boolean; // True if AI is fetching text response
+  isAiProcessingResponse: boolean; 
 }
 
 export function ChatInterface({
-  messages,
   onSendMessage,
-  isAiProcessingMessageVisible,
   isAiAudioPlaying,
   onInterruptAiAudio,
   isAiProcessingResponse,
 }: ChatInterfaceProps) {
   const [isListening, setIsListening] = useState(false);
   const currentRecognitionInstance = useRef<SpeechRecognition | null>(null);
-  const scrollAreaRef = useRef<HTMLDivElement | null>(null);
   const { toast } = useToast();
-
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  
   const audioContextRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
-  const dataArrayRef = useRef<Uint8Array | null>(null);
-  const visualizerAnimationRef = useRef<number | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
 
 
-  const stopListening = useCallback(() => {
-    if (currentRecognitionInstance.current) {
+  const stopListening = useCallback((stopRecognitionInstance = true) => {
+    if (stopRecognitionInstance && currentRecognitionInstance.current) {
       try {
+        currentRecognitionInstance.current.onstart = null;
+        currentRecognitionInstance.current.onresult = null;
+        currentRecognitionInstance.current.onerror = null;
+        currentRecognitionInstance.current.onend = null;
         currentRecognitionInstance.current.stop();
       } catch (e) {
         // Ignore errors if already stopped
       }
-      // recognition.onend will handle nulling currentRecognitionInstance.current and other cleanups
+      currentRecognitionInstance.current = null;
     }
-    // Stop visualizer
-    if (visualizerAnimationRef.current) {
-      cancelAnimationFrame(visualizerAnimationRef.current);
-      visualizerAnimationRef.current = null;
-    }
+    
     if (mediaStreamRef.current) {
       mediaStreamRef.current.getTracks().forEach(track => track.stop());
       mediaStreamRef.current = null;
     }
-    if (sourceRef.current) {
-      try { sourceRef.current.disconnect(); } catch(e) { /* ignore */ }
-      sourceRef.current = null;
-    }
-    // analyserRef does not need explicit disconnect if source is disconnected
-    // audioContextRef is closed on unmount or if recreation is needed.
+    // AudioContext is tricky to fully clean up without closing, 
+    // but stopping tracks is the main part for microphone access.
+    // We'll close it on unmount.
+
     setIsListening(false);
   }, []);
 
@@ -77,108 +65,11 @@ export function ChatInterface({
       }
     }
     if (finalTranscript.trim()) {
-      // Automatically send the message
       await onSendMessage(finalTranscript.trim());
     }
   }, [onSendMessage]);
 
-
-  const drawVisualizer = useCallback(() => {
-    if (!analyserRef.current || !canvasRef.current || !dataArrayRef.current || !audioContextRef.current) {
-      if (visualizerAnimationRef.current) cancelAnimationFrame(visualizerAnimationRef.current);
-      visualizerAnimationRef.current = null;
-      return;
-    }
-
-    if (audioContextRef.current.state === 'suspended') {
-      audioContextRef.current.resume().catch(err => {
-        console.warn("Error resuming AudioContext for visualizer:", err);
-        if (visualizerAnimationRef.current) {
-            cancelAnimationFrame(visualizerAnimationRef.current);
-            visualizerAnimationRef.current = null;
-        }
-      });
-    }
-
-    if (audioContextRef.current.state !== 'running') {
-      if (visualizerAnimationRef.current) {
-        cancelAnimationFrame(visualizerAnimationRef.current);
-        visualizerAnimationRef.current = null;
-      }
-      console.warn("AudioContext not running. Visualizer stopped.");
-      return;
-    }
-
-    visualizerAnimationRef.current = requestAnimationFrame(drawVisualizer);
-    analyserRef.current.getByteFrequencyData(dataArrayRef.current);
-
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const WIDTH = canvas.width;
-    const HEIGHT = canvas.height;
-    ctx.clearRect(0, 0, WIDTH, HEIGHT);
-
-    const barWidth = (WIDTH / dataArrayRef.current.length) * 2.5;
-    let x = 0;
-    for (let i = 0; i < dataArrayRef.current.length; i++) {
-      const barHeight = dataArrayRef.current[i] / 2;
-      ctx.fillStyle = 'hsl(var(--primary))';
-      ctx.fillRect(x, HEIGHT - barHeight, barWidth, barHeight);
-      x += barWidth + 1;
-    }
-  }, []);
-
-  const setupVisualizer = useCallback(async () => {
-    if (!canvasRef.current) return;
-    try {
-      if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
-        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-      }
-      if (audioContextRef.current.state === 'suspended') {
-        await audioContextRef.current.resume();
-      }
-
-      if (!analyserRef.current && audioContextRef.current) {
-        analyserRef.current = audioContextRef.current.createAnalyser();
-        analyserRef.current.fftSize = 256;
-        const bufferLength = analyserRef.current.frequencyBinCount;
-        dataArrayRef.current = new Uint8Array(bufferLength);
-      }
-
-      if (!mediaStreamRef.current || !mediaStreamRef.current.active) {
-        if (mediaStreamRef.current) {
-          mediaStreamRef.current.getTracks().forEach(track => track.stop());
-        }
-        mediaStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
-      }
-
-      if (sourceRef.current && sourceRef.current.mediaStream !== mediaStreamRef.current) {
-         try { sourceRef.current.disconnect(); } catch(e) { /* ignore */ }
-         sourceRef.current = null; // Force re-creation
-      }
-
-      if (!sourceRef.current && mediaStreamRef.current && audioContextRef.current && analyserRef.current) {
-         sourceRef.current = audioContextRef.current.createMediaStreamSource(mediaStreamRef.current);
-         sourceRef.current.connect(analyserRef.current);
-      }
-
-      if(!visualizerAnimationRef.current && audioContextRef.current?.state === 'running') {
-        drawVisualizer();
-      } else if (audioContextRef.current?.state !== 'running') {
-        console.warn("AudioContext not running after setup. Visualizer will not start.");
-      }
-
-    } catch (err) {
-      console.warn("Error setting up visualizer or getting media stream:", err);
-      toast({ variant: "destructive", title: "Visualizer Error", description: "Could not access microphone for visualizer."});
-      stopListening();
-    }
-  }, [toast, stopListening, drawVisualizer]);
-
-
-  const startListening = useCallback(() => {
+  const startListening = useCallback(async () => {
     if (isListening || isAiProcessingResponse) return;
 
     const SpeechRecognition = window.SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -187,33 +78,43 @@ export function ChatInterface({
       return;
     }
 
+    // Ensure any previous instance is fully stopped.
     if (currentRecognitionInstance.current) {
-        try {
-            currentRecognitionInstance.current.onstart = null;
-            currentRecognitionInstance.current.onresult = null;
-            currentRecognitionInstance.current.onerror = null;
-            currentRecognitionInstance.current.onend = null;
-            currentRecognitionInstance.current.stop();
-        } catch (e) { /* ignore */ }
-        currentRecognitionInstance.current = null;
+      stopListening(true);
     }
-    if (visualizerAnimationRef.current) {
-        cancelAnimationFrame(visualizerAnimationRef.current);
-        visualizerAnimationRef.current = null;
+    
+    // Attempt to get microphone access first
+    try {
+      if (!mediaStreamRef.current || !mediaStreamRef.current.active) {
+        if (mediaStreamRef.current) { // Clean up old stream if any
+            mediaStreamRef.current.getTracks().forEach(track => track.stop());
+        }
+        mediaStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
+    } catch (err: any) {
+        console.error("Error getting media stream for recognition:", err);
+        let desc = "Could not access microphone.";
+        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+            desc = "Microphone access denied. Please allow microphone access in browser settings.";
+        } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+            desc = "No microphone found. Please ensure a microphone is connected.";
+        }
+        toast({ variant: "destructive", title: "Microphone Error", description: desc});
+        stopListening(false); // Stop media stream if it started, but don't try to stop recognition if it never began
+        return;
     }
 
 
     const recognition = new SpeechRecognition();
     currentRecognitionInstance.current = recognition;
 
-    recognition.continuous = false;
+    recognition.continuous = false; 
     recognition.interimResults = false;
     recognition.lang = 'en-US';
 
     recognition.onstart = () => {
       if (recognition === currentRecognitionInstance.current) {
         setIsListening(true);
-        setupVisualizer();
       }
     };
 
@@ -225,164 +126,120 @@ export function ChatInterface({
 
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
       if (recognition === currentRecognitionInstance.current) {
-        let consoleErrorMsg = `Speech recognition error: ${event.error}`;
-        if (event.message) consoleErrorMsg += ` - ${event.message}`;
-        
         let toastErrorMessage = "An unknown speech error occurred.";
         if (event.error === 'no-speech') {
           toastErrorMessage = "No speech was detected. Please try again.";
-          console.warn("Speech recognition error: no-speech", event);
         } else if (event.error === 'audio-capture') {
-          toastErrorMessage = "Audio capture failed. Ensure microphone is connected and permission is granted.";
-          console.error("Speech recognition error: audio-capture", event);
+          toastErrorMessage = "Audio capture failed. Check microphone connection.";
         } else if (event.error === 'not-allowed') {
-          toastErrorMessage = "Microphone access denied. Please allow microphone access in browser settings.";
-          console.error("Speech recognition error: not-allowed", event);
+          toastErrorMessage = "Microphone access denied. Please allow it in browser settings.";
         } else if (event.error === 'network') {
-          toastErrorMessage = "A network error occurred with the browser's speech recognition service. Please check your connection or try again later.";
-           console.warn("Speech recognition error: network", event);
-        } else {
-          console.error(consoleErrorMsg, event);
+            toastErrorMessage = "A network error occurred with speech recognition. Check connection.";
         }
+        console.warn("Speech recognition error:", event.error, event.message);
         toast({ variant: "destructive", title: "Speech Error", description: toastErrorMessage });
-        // onend should be called, which calls stopListening()
+        // onend will be called which calls stopListening
       }
     };
-
+    
     recognition.onend = () => {
+      // Check if this is the current instance before cleaning up.
+      // This prevents race conditions if a new recognition starts quickly.
       if (recognition === currentRecognitionInstance.current) {
-        stopListening(); // This will set isListening to false and clean up visualizer
-        currentRecognitionInstance.current = null;
+        stopListening(true); // stopListening will set isListening to false
       }
     };
 
     try {
-        recognition.start();
+      recognition.start();
     } catch (e) {
-        console.error("Error starting speech recognition:", e);
-        toast({ variant: "destructive", title: "Mic Error", description: "Could not start microphone."})
-        stopListening();
+      console.error("Error starting speech recognition:", e);
+      toast({ variant: "destructive", title: "Mic Error", description: "Could not start microphone."})
+      stopListening(true); // Full cleanup
     }
-  }, [isListening, isAiProcessingResponse, toast, handleSpeechResult, stopListening, setupVisualizer, drawVisualizer]);
+  }, [isListening, isAiProcessingResponse, toast, handleSpeechResult, stopListening]);
 
 
   const handleMicClick = () => {
     if (isListening) {
-      stopListening(); // User explicitly stops/cancels listening
+      stopListening(true); 
     } else {
       if (isAiAudioPlaying) {
-        onInterruptAiAudio(); // Stop AI speech if it's playing
+        onInterruptAiAudio(); 
       }
-      if (!isAiProcessingResponse) { // Only start listening if AI isn't already processing a response
+      if (!isAiProcessingResponse) {
         startListening();
       }
     }
   };
-
-  useEffect(() => {
-    if (scrollAreaRef.current) {
-      const scrollViewport = scrollAreaRef.current.querySelector('div[data-radix-scroll-area-viewport]');
-      if (scrollViewport) {
-        scrollViewport.scrollTop = scrollViewport.scrollHeight;
-      }
-    }
-  }, [messages]);
-
+  
   useEffect(() => {
     return () => {
-      if (currentRecognitionInstance.current) {
-        currentRecognitionInstance.current.onstart = null;
-        currentRecognitionInstance.current.onresult = null;
-        currentRecognitionInstance.current.onerror = null;
-        currentRecognitionInstance.current.onend = null;
-        try { currentRecognitionInstance.current.stop(); } catch(e) { /* ignore */ }
-        currentRecognitionInstance.current = null;
-      }
-      stopListening();
+      // Cleanup on component unmount
+      stopListening(true); // Ensure speech recognition is stopped
       if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-        audioContextRef.current.close().catch(err => console.warn("Error closing AudioContext:", err));
+        audioContextRef.current.close().catch(err => console.warn("Error closing AudioContext on unmount:", err));
         audioContextRef.current = null;
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stopListening]); // stopListening is stable
 
+  let orbAnimationClass = 'animate-breathe';
+  if (isListening) {
+    orbAnimationClass = 'animate-listen-pulse';
+  } else if (isAiAudioPlaying) {
+    orbAnimationClass = 'animate-speak-pulse';
+  } else if (isAiProcessingResponse) {
+    orbAnimationClass = 'animate-processing-pulse';
+  }
+
   return (
-    <div className={cn(
-        "flex flex-col border rounded-lg shadow-lg bg-card",
-        isListening ? "h-[650px]" : "h-[600px]"
-      )}>
-      {isListening && (
-        <div className="p-2 border-b bg-zinc-800">
-          <canvas ref={canvasRef} width="300" height="50" className="w-full h-[50px] rounded"></canvas>
-        </div>
-      )}
-      <ScrollArea className="flex-grow p-4" ref={scrollAreaRef}>
-        <div className="space-y-4">
-          {messages.map((msg) => (
-            <div
-              key={msg.id}
-              className={cn(
-                'flex items-end space-x-2',
-                msg.sender === 'user' ? 'justify-end' : 'justify-start'
-              )}
-            >
-              {msg.sender === 'ai' && (
-                <Avatar className="h-8 w-8">
-                  <AvatarFallback><Bot size={18}/></AvatarFallback>
-                </Avatar>
-              )}
-              <div
-                className={cn(
-                  'max-w-xs lg:max-w-md p-3 rounded-lg shadow',
-                  msg.sender === 'user'
-                    ? 'bg-primary text-primary-foreground rounded-br-none'
-                    : 'bg-muted text-muted-foreground rounded-bl-none'
-                )}
-              >
-                <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
-                <p className="text-xs text-right mt-1 opacity-70">
-                  {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </p>
-              </div>
-              {msg.sender === 'user' && (
-                <Avatar className="h-8 w-8">
-                   <AvatarFallback><User size={18}/></AvatarFallback>
-                </Avatar>
-              )}
-            </div>
-          ))}
-          {isAiProcessingMessageVisible && (
-             <div className="flex items-end space-x-2 justify-start">
-              <Avatar className="h-8 w-8">
-                <AvatarFallback><Bot size={18}/></AvatarFallback>
-              </Avatar>
-              <div className="max-w-xs lg:max-w-md p-3 rounded-lg shadow bg-muted text-muted-foreground rounded-bl-none">
-                <p className="text-sm italic">EmpathyAI is processing...</p>
-              </div>
+    <div className="flex flex-col h-[600px] w-full bg-zinc-900 items-center justify-between p-6 rounded-lg shadow-2xl relative overflow-hidden">
+      {/* Orb */}
+      <div className="flex-grow flex items-center justify-center w-full">
+        <div 
+          className={cn(
+            "w-56 h-56 md:w-64 md:h-64 rounded-full relative transition-all duration-500 ease-in-out",
+            orbAnimationClass
+          )}
+          style={{
+            background: 'radial-gradient(circle at center, hsla(220, 100%, 95%, 0.7) 0%, hsla(210, 100%, 80%, 0.5) 40%, hsla(var(--primary), 0.3) 70%, transparent 85%)',
+            // boxShadow is now primarily handled by the animation classes in globals.css
+          }}
+        >
+          {isAiProcessingResponse && !isListening && !isAiAudioPlaying && (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <Loader2 className="w-12 h-12 text-blue-300 animate-spin opacity-70" />
             </div>
           )}
         </div>
-      </ScrollArea>
-      <div className="border-t p-4 flex items-center justify-center bg-zinc-900 space-x-4">
+      </div>
+
+      {/* Controls */}
+      <div className="flex items-center justify-center space-x-6 pb-4 pt-8">
         <Button
           type="button"
           onClick={handleMicClick}
-          disabled={isAiProcessingResponse && !isListening} // Allow stopping if listening, otherwise respect isAiProcessingResponse
+          disabled={isAiProcessingResponse && !isListening}
           aria-label={isListening ? "Stop listening" : "Start listening"}
           className={cn(
-            "rounded-full w-20 h-20 flex items-center justify-center text-primary-foreground",
-            isListening ? "bg-red-600 hover:bg-red-700" : "bg-primary hover:bg-primary/90"
+            "rounded-full w-20 h-20 flex items-center justify-center text-white transition-all duration-300 ease-in-out transform hover:scale-110 focus:outline-none focus:ring-4 focus:ring-opacity-50",
+            isListening 
+              ? "bg-red-500 hover:bg-red-600 shadow-lg shadow-red-500/30 focus:ring-red-400" 
+              : "bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-600/30 focus:ring-blue-500",
+            (isAiProcessingResponse && !isListening) && "opacity-50 cursor-not-allowed"
           )}
         >
           {isListening ? <MicOff className="h-10 w-10" /> : <Mic className="h-10 w-10" />}
         </Button>
+        
         {isListening && (
             <Button
               type="button"
-              onClick={stopListening} // Cancel button always just stops listening
-              aria-label="Cancel"
-              className="rounded-full w-16 h-16 flex items-center justify-center bg-zinc-700 hover:bg-zinc-600 text-white"
+              onClick={() => stopListening(true)}
+              aria-label="Cancel listening"
+              className="rounded-full w-16 h-16 flex items-center justify-center bg-zinc-700 hover:bg-zinc-600 text-white shadow-md hover:shadow-zinc-700/40 transition-all duration-300 ease-in-out transform hover:scale-110 focus:outline-none focus:ring-4 focus:ring-zinc-600 focus:ring-opacity-50"
             >
               <LucideX className="h-8 w-8" />
             </Button>
